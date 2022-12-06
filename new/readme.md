@@ -12,11 +12,11 @@ The contents that you'll find in this folder include:
 - New Data Table: This is a pulled report, similar to historical data table and should refresh the local historical data table.
   The thought process here is that the iteration and refresh is always comparing the new data, to the last time it was pulled.
 - Wins Data Table: 
-      - t1 is_product_enabled == False 
-      - t2 is_product_enabled == True 
+    - t1 is_product_enabled == False 
+    - t2 is_product_enabled == True 
 - Churn Data table:
-      - t1 is_product_enabled == True 
-      - t2 is_product_enabled == False 
+    - t1 is_product_enabled == True 
+    - t2 is_product_enabled == False 
 
 ## Brief Overview
 1. The historical data set is an initial snapshot of product adoption
