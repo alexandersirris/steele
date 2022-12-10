@@ -1,4 +1,4 @@
-The contents that you'll find in this folder include:
+This outline explains the overall project files, direction, and goal. The contents that you'll find in this folder include:
 
 ## Files Included
 - product_churn_dummy_script.py
