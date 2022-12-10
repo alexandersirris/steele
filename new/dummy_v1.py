@@ -12,54 +12,6 @@ Original file is located at
     https://colab.research.google.com/drive/1sJI-819jMX6oFOXsNIESAkXyL3jZTrzL
 """
 
-'''
-1. Take new file with product churn UID
-2. Compare deltas of new to old data 
-    1. If UID from new file doesn’t exist in old file, add UID + new data to row
-        * AT RISK TABLE + First Notif
-        1. Add Churn Time Stamp to New Rows. 
-        2. Add column to compare current date - churn time stamp 
-            * KPI: Time Since Churn 
-            * Slack Bot Reads CSM name, search to find slack UID, send Slack notification to CSM
-    2. If UID still exists, leave row in old file. 
-        1. Compare difference of Current Date - Churn Date Column for UID 
-            1. If Total is >= 2 days and <= 3 days send “2nd follow up notification” 
-            2. If Total is > 3 AND <  send “Final follow up notification”
-    3. If UID from old file no longer exists in new file, remove row and add to re-adopted table 
-        1. Add time stamps for date closed
-        2. Compare current date - Churn time stamp 
-            * KPI: Turn over time 
-
-CSM Slack Submission Form 
-
-- Bot:
-    - Asks CSM to reach out to merchant with multiple follow up notifications. 
-    - Was this notification useful? Gauge program usefulness. 
-    - CSM Win/Lost Form
-        - Win/Lost Table with CSM, UID, Merchant Name, Time Stamp
-        - Compare CSM win submission table with re-adopted table to determine if TRUE win. 
-
-- Topline KPIs - 
-Total Revenue Recovered 
-
-Number Accounts At Risk
-Total GMV at Risk
-Risk Bucketed by Time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90
-
-Number of Accounts Churned
-Total Revenue lost
-Accounts lost by time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90
-
-Number Accounts Won
-Total Revenue Won
-Accounts Won by time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90
-
-Revenue Recovered by Region
-CSM True Wins / Losses
-Total Self-Service Wins / Losses 
-CSM Revenue Recovered
-Wins bucketed by time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90 
-'''
 
 # Import numpy and pandas package
 import os
@@ -139,7 +91,7 @@ def check_changes(main_df, daily_df):
     matches['new'] = matches['is_product_enabled']
     matches['oldint'] = matches['old'] * 1.0
     matches['newint'] = matches['new'] * 1.0
-    matches['change'] = matches['oldint'] - matches['newint']
+    matches['change'] = matches['newint'] - matches['oldint']
     matches['transition'] = matches.apply(lambda row : status_flipped(row), axis=1)
     output = matches[['UID','transition']]
     output.dropna(inplace=True)
