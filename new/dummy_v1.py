@@ -12,7 +12,7 @@ Original file is located at
     https://colab.research.google.com/drive/1sJI-819jMX6oFOXsNIESAkXyL3jZTrzL
 """
 
-
+#%% Section: Import libraries
 # Import numpy and pandas package
 import os
 import time
@@ -29,6 +29,7 @@ import pandas as pd
 # pd.set_option('max_columns', None)
 # double_df.head()
 
+#%% Section: Import libraries
 #%% Section: Define Functions
 
 # Sets timezone to EST
@@ -52,8 +53,14 @@ def col_to_first(df, column):
     print("Column", column, "was shifted to first position")
 
 # Strips suffix from column where there is a join 
-def strip_right(df, suffix="_x"):
+def strip_right(df, suffix):
     df.columns = df.columns.str.rstrip(suffix)
+    return df
+
+def drop_dup_col(df, suffix):
+    # list comprehension of the cols that end with '_y'
+    to_drop = [x for x in df if x.endswith(suffix)]
+    df.drop(to_drop, axis=1, inplace=True)
     return df
 
 # Removes the time column, and updates the column with a new timestamp
@@ -75,7 +82,7 @@ def import_daily(daily_csv):
     return df
 
 # Establish listener for TRUE/FALSE switch conditions
-# Row-wise column filling function for the lambda
+# Row-wise column filling function for the lambda row
 def status_flipped(row):
     if row['change'] < 0:
         return "CHURN"
@@ -92,39 +99,37 @@ def check_changes(main_df, daily_df):
     matches['oldint'] = matches['old'] * 1.0
     matches['newint'] = matches['new'] * 1.0
     matches['change'] = matches['newint'] - matches['oldint']
-    matches['transition'] = matches.apply(lambda row : status_flipped(row), axis=1)
-    output = matches[['UID','transition']]
+    matches['transition'] = matches.apply(lambda row : status_flipped(row), axis=1) # lambda function row 
+    output = matches[['UID', 'transition']]
     output.dropna(inplace=True)
     return output
 
 # Brings in the main dataframe and the daily dataframe.
 # Then, creates a dataframe of just the intersecting info and appends the new unique rows to the the main dataframe
 # Returns the updated main dataframe and the inner-joined intersecting rows to be processed.
+# Returns two dataframes, updated and exists. 
 def daily_update(main, daily):
-    inter = daily.merge(main, on='UID', how='left', indicator=True)
+    inter = pd.merge(daily, main, on='UID', how='left', indicator=True)
     new = inter[inter._merge == 'left_only'].iloc[:,:-1]
     updated = pd.concat([main, new], ignore_index=True)
-    exists = main.merge(daily, on='UID', how='inner', suffixes=("_d1","_d2"), sort=True)
+    exists = main.merge(daily, on='UID', how='inner', suffixes=("","_d2"), sort=True) # To be joined with changes
     return updated, exists
 
-
-
 #%% Section: Declare all global variables
-
 
 #%% Section: Main code body
 
 # Read Historical CSV file 
 # Convert Historical CSV to dataframe with select columns 
 # h_csv_3 = "historical_dataset.csv" #this works because they're in the working folder
-h_df3_spi = import_main("historical_dataset.csv")
+h_df3_spi = import_main("/Users/alexandersirris/repos/steele/new/dummy_data/historical_dataset.csv")
 # h_df3_spi.sort_values('UID',ascending = True, ignore_index= True)
 # h_df3_spi.head(30)
 
 # Read New CSV File
 # Convert New CSV File to dataframe with select columns
 # n_csv_3 = "day_2.csv" # day 2 pull of the report
-n_df3_spi = import_daily("day_2.csv")
+n_df3_spi = import_daily("/Users/alexandersirris/repos/steele/new/dummy_data/day_2.csv")
 #n_df3_spi.sort_values('UID',ascending = True, ignore_index= True)
 
 # A DF with that day's changes
@@ -134,9 +139,24 @@ changes = check_changes(h_df3_spi, n_df3_spi)
 # Compare new CSV with updated historical CSV
 # Inner join new table with historical data table will remove new records. 
 df_all, double_df1 = daily_update(h_df3_spi, n_df3_spi)
-double_df1 = double_df1.loc[(double_df1['is_product_enabled_d1'] == True) & (double_df1['is_product_enabled_d2'] == False), ['UID', 'current_csm_d2', 'shop_name_d2', 'region_d2', 'internal_url_d2', 'revenue_365_d2', 'is_product_enabled_d2']]
-double_df1.rename(columns={'current_csm_d2': 'current_csm', 'shop_name_d2': 'shop_name', 'region_d2':'region', 'internal_url_d2':'internal_url', 'revenue_365_d2': 'revenue_365', 'is_product_enabled_d2':'is_product_enabled'}, inplace=True)
-double_df1.sort_values('UID',ascending = True, ignore_index= True)
+double_df1 = double_df1.merge(changes, on='UID', how='inner', sort=True)
+double_df1 = drop_dup_col(double_df1, "_d2") # Drops dup column 
+double_df1 = double_df1.assign(date = pd.to_datetime(timestamp()))
+
+# Create churn and win table. 
+churn_table = double_df1.loc[double_df1['transition']== "CHURN"]
+wins_table = double_df1.loc[double_df1['transition']== "WIN"]
+
+# Cleaning the df_all dataframe to remove duplicate columns and strip suffix
+df_all = drop_dup_col(df_all, '_y')
+df_all = strip_right(df_all, '_x')
+print(churn_table.head(20))
+
+# double_df1 = double_df1.loc[(double_df1['is_product_enabled_d1'] == True) & (double_df1['is_product_enabled_d2'] == False), ['UID', 'current_csm_d2', 'shop_name_d2', 'region_d2', 'internal_url_d2', 'revenue_365_d2', 'is_product_enabled_d2']]
+# double_df1.rename(columns={'current_csm_d2': 'current_csm', 'shop_name_d2': 'shop_name', 'region_d2':'region', 'internal_url_d2':'internal_url', 'revenue_365_d2': 'revenue_365', 'is_product_enabled_d2':'is_product_enabled'}, inplace=True)
+# double_df1.sort_values('UID',ascending = True, ignore_index= True)
+
+
 # Update historical csv file with new records and snopshot
 # This will concatinate the historical dataframe with the new dataframe, then remove the last duplicate
 # Keep = 'first' will refresh the data table with the newest data, while adding new records
