@@ -77,6 +77,22 @@ import pandas as pd
 # pd.set_option('max_columns', None)
 # double_df.head()
 
+#%% Section: Declare all global variables
+
+maincsv = "historical_dataset.csv"
+import_cols = ['UID', 'current_csm', 'shop_name', 'region', 'internal_url', 'revenue_365', 'is_product_enabled']
+cust_cols = ['UID', 'current_csm', 'shop_name', 'region', 'internal_url']
+report_cols = ['UID', 'is_product_enabled', 'change']
+
+main_tbl = pd.DataFrame()
+churn_tbl = pd.DataFrame(columns=import_cols)
+win_tbl = pd.DataFrame(columns=import_cols)
+cust_info = pd.DataFrame()
+
+#%% Section: Define one-time program input variables
+
+# Blank for now
+
 #%% Section: Define Functions
 
 # Sets timezone to EST
@@ -112,13 +128,13 @@ def update_time(df):
 
 # Imports the csv that will be the top-level and applies your table settings. It's identical to the next function, but the name makes debugging easier
 def import_main(main_csv):
-    df = pd.read_csv(main_csv, index_col=None, usecols = ['UID', 'current_csm', 'shop_name', 'region', 'internal_url', 'revenue_365', 'is_product_enabled'])
+    df = pd.read_csv(main_csv, index_col=None, usecols = import_cols)
     df.sort_values('UID',ascending = True, ignore_index= True)
     return df
 
 # Imports the csv that will be the daily query and applies your table settings.
 def import_daily(daily_csv):
-    df = pd.read_csv(daily_csv, index_col=None, usecols = ['UID', 'current_csm', 'shop_name', 'region', 'internal_url', 'revenue_365', 'is_product_enabled'])
+    df = pd.read_csv(daily_csv, index_col=None, usecols = import_cols)
     df.sort_values('UID',ascending = True, ignore_index= True)
     return df
 
@@ -139,9 +155,9 @@ def check_changes(main_df, daily_df):
     matches['new'] = matches['is_product_enabled']
     matches['oldint'] = matches['old'] * 1.0
     matches['newint'] = matches['new'] * 1.0
-    matches['change'] = matches['oldint'] - matches['newint']
+    matches['change'] = matches['newint'] - matches['oldint']
     matches['transition'] = matches.apply(lambda row : status_flipped(row), axis=1)
-    output = matches[['UID','transition']]
+    output = matches[['UID', 'old', 'new', 'change', 'transition']].copy() # .copy() is necessary here to prevent unpredictable Python behavior
     output.dropna(inplace=True)
     return output
 
@@ -155,17 +171,32 @@ def daily_update(main, daily):
     exists = main.merge(daily, on='UID', how='inner', suffixes=("_d1","_d2"), sort=True)
     return updated, exists
 
+#Import the daily change dataframe to parse into wins and churns
+def parse_status(changes): 
+    win = changes[changes['new'] == True].copy()
+    churn = changes[changes['new'] == False].copy()
+    win['last_changed'] = timestamp()
+    churn['last_changed'] = timestamp()
+    return win, churn
 
-
-#%% Section: Declare all global variables
-
+#Updates win and churn tables
+def update_churns(win, churn, win_list, churn_list):
+    #Unlike in crypto, always credit the new table first before deleting from the old one
+    win_list.concat(win, ignore_index=False)
+    churn_list.concat(churn, ignore_index=False)
+    #now test and drop the old ones.
+    won = win['UID'].isin(churn_list['UID']) 
+    lost = churn['UID'].isin(win_list['UID'])
+    win_list.drop(win_list[lost].index, inplace = True)
+    churn_list.drop(churn_list[won].index, inplace = True)
+    return win_list, churn_list
 
 #%% Section: Main code body
 
 # Read Historical CSV file 
 # Convert Historical CSV to dataframe with select columns 
 # h_csv_3 = "historical_dataset.csv" #this works because they're in the working folder
-h_df3_spi = import_main("historical_dataset.csv")
+h_df3_spi = import_main(maincsv)
 # h_df3_spi.sort_values('UID',ascending = True, ignore_index= True)
 # h_df3_spi.head(30)
 
@@ -178,7 +209,6 @@ n_df3_spi = import_daily("day_2.csv")
 # A DF with that day's changes
 changes = check_changes(h_df3_spi, n_df3_spi)
 
-#%%
 # Compare new CSV with updated historical CSV
 # Inner join new table with historical data table will remove new records. 
 df_all, double_df1 = daily_update(h_df3_spi, n_df3_spi)
@@ -195,4 +225,11 @@ df_all = df_all.sort_values('UID',ascending = True, ignore_index= True)
 spi_churned_new = double_df1
 spi_churned_new = spi_churned_new.assign(date = pd.to_datetime(timestamp()))
 
-# spi_churned_new = update_time(spi_chu
+# spi_churned_new = update_time(spi_churned_new)
+spi_churned_new.head()
+
+#%%
+win_upd, churn_upd = parse_status(changes)
+
+#%%
+win_list, churn_list = update_churns(win_upd, churn_upd, win_tbl, churn_tbl)
