@@ -182,8 +182,8 @@ def parse_status(changes):
 #Updates win and churn tables
 def update_churns(win, churn, win_list, churn_list):
     #Unlike in crypto, always credit the new table first before deleting from the old one
-    win_list.concat(win, ignore_index=False)
-    churn_list.concat(churn, ignore_index=False)
+    win_list = pd.concat([win_list, win], ignore_index=True)
+    churn_list = pd.concat([churn_list, churn], ignore_index=True)
     #now test and drop the old ones.
     won = win['UID'].isin(churn_list['UID']) 
     lost = churn['UID'].isin(win_list['UID'])
