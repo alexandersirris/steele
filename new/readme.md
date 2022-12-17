@@ -9,7 +9,7 @@ The contents that you'll find in this folder include:
   
 ## Files Added By SteelAndQuill
 - `dummy_v1.py` *this is the base file*
-- `dummy_first_day_v1.py` *this is the working version of the initial import of historical_data.csv*
+- `dummy_first_day_v1.py` *this is the working version of the initial import of* `historical_dataset.csv`
 - `dummy_next_days_v1.py` *this is the version to be used to run daily updates*
 - `day_2_out.xlsx` *this is an example of how to make a light database from the initial import from* `dummy_first_day_v1.py`
 - `day_3_out.xlsx` *this is the result of the first run of* `dummy_next_days_v1.py`
