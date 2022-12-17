@@ -82,7 +82,7 @@ import pandas as pd
 #inputs
 today = "day_3.csv"
 
-mstr_book = "2022-12-17-013624_demo.xlsx"
+mstr_book = "day_2_out.xlsx"
 
 mstr_sht = "All_Cust"
 win_sht = "Wins"
