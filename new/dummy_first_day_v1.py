@@ -12,7 +12,55 @@ Original file is located at
     https://colab.research.google.com/drive/1sJI-819jMX6oFOXsNIESAkXyL3jZTrzL
 """
 
-#%% Section: Import libraries
+'''
+1. Take new file with product churn UID
+2. Compare deltas of new to old data 
+    1. If UID from new file doesn’t exist in old file, add UID + new data to row
+        * AT RISK TABLE + First Notif
+        1. Add Churn Time Stamp to New Rows. 
+        2. Add column to compare current date - churn time stamp 
+            * KPI: Time Since Churn 
+            * Slack Bot Reads CSM name, search to find slack UID, send Slack notification to CSM
+    2. If UID still exists, leave row in old file. 
+        1. Compare difference of Current Date - Churn Date Column for UID 
+            1. If Total is >= 2 days and <= 3 days send “2nd follow up notification” 
+            2. If Total is > 3 AND <  send “Final follow up notification”
+    3. If UID from old file no longer exists in new file, remove row and add to re-adopted table 
+        1. Add time stamps for date closed
+        2. Compare current date - Churn time stamp 
+            * KPI: Turn over time 
+
+CSM Slack Submission Form 
+
+- Bot:
+    - Asks CSM to reach out to merchant with multiple follow up notifications. 
+    - Was this notification useful? Gauge program usefulness. 
+    - CSM Win/Lost Form
+        - Win/Lost Table with CSM, UID, Merchant Name, Time Stamp
+        - Compare CSM win submission table with re-adopted table to determine if TRUE win. 
+
+- Topline KPIs - 
+Total Revenue Recovered 
+
+Number Accounts At Risk
+Total GMV at Risk
+Risk Bucketed by Time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90
+
+Number of Accounts Churned
+Total Revenue lost
+Accounts lost by time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90
+
+Number Accounts Won
+Total Revenue Won
+Accounts Won by time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90
+
+Revenue Recovered by Region
+CSM True Wins / Losses
+Total Self-Service Wins / Losses 
+CSM Revenue Recovered
+Wins bucketed by time L24HRS, L48HRS, L72HRS, L30, L60, L90, L>90 
+'''
+
 # Import numpy and pandas package
 import os
 import time
@@ -29,7 +77,26 @@ import pandas as pd
 # pd.set_option('max_columns', None)
 # double_df.head()
 
-#%% Section: Import libraries
+#%% Section: Declare all global variables
+
+#inputs
+maincsv = "historical_dataset.csv"
+import_cols = ['UID', 'current_csm', 'shop_name', 'region', 'internal_url', 'revenue_365', 'is_product_enabled']
+cust_cols = ['UID', 'current_csm', 'shop_name', 'region', 'internal_url']
+report_cols = ['UID', 'is_product_enabled', 'change']
+
+#Intermediaries
+main_tbl = pd.DataFrame()
+churn_tbl = pd.DataFrame(columns=import_cols)
+win_tbl = pd.DataFrame(columns=import_cols)
+cust_info = pd.DataFrame()
+
+#Output
+out_dest = "_demo.xlsx"
+
+#%% Section: Define one-time program input variables
+
+# Blank for now
 
 #%% Section: Define Functions
 
@@ -54,14 +121,8 @@ def col_to_first(df, column):
     print("Column", column, "was shifted to first position")
 
 # Strips suffix from column where there is a join 
-def strip_right(df, suffix):
+def strip_right(df, suffix="_x"):
     df.columns = df.columns.str.rstrip(suffix)
-    return df
-
-def drop_dup_col(df, suffix):
-    # list comprehension of the cols that end with '_y'
-    to_drop = [x for x in df if x.endswith(suffix)]
-    df.drop(to_drop, axis=1, inplace=True)
     return df
 
 # Removes the time column, and updates the column with a new timestamp
@@ -83,7 +144,7 @@ def import_daily(daily_csv):
     return df
 
 # Establish listener for TRUE/FALSE switch conditions
-# Row-wise column filling function for the lambda row
+# Row-wise column filling function for the lambda
 def status_flipped(row):
     if row['change'] < 0:
         return "CHURN"
@@ -100,20 +161,19 @@ def check_changes(main_df, daily_df):
     matches['oldint'] = matches['old'] * 1.0
     matches['newint'] = matches['new'] * 1.0
     matches['change'] = matches['newint'] - matches['oldint']
-    matches['transition'] = matches.apply(lambda row : status_flipped(row), axis=1) # lambda function row 
-    output = matches[['UID', 'transition']]
+    matches['transition'] = matches.apply(lambda row : status_flipped(row), axis=1)
+    output = matches[['UID', 'old', 'new', 'change', 'transition']].copy() # .copy() is necessary here to prevent unpredictable Python behavior
     output.dropna(inplace=True)
     return output
 
 # Brings in the main dataframe and the daily dataframe.
 # Then, creates a dataframe of just the intersecting info and appends the new unique rows to the the main dataframe
 # Returns the updated main dataframe and the inner-joined intersecting rows to be processed.
-# Returns two dataframes, updated and exists. 
 def daily_update(main, daily):
-    inter = pd.merge(daily, main, on='UID', how='left', indicator=True)
+    inter = daily.merge(main, on='UID', how='left', indicator=True)
     new = inter[inter._merge == 'left_only'].iloc[:,:-1]
     updated = pd.concat([main, new], ignore_index=True)
-    exists = main.merge(daily, on='UID', how='inner', suffixes=("","_d2"), sort=True) # To be joined with changes
+    exists = main.merge(daily, on='UID', how='inner', suffixes=("_d1","_d2"), sort=True)
     return updated, exists
 
 #Import the daily change dataframe to parse into wins and churns
@@ -130,25 +190,35 @@ def update_churns(win, churn, win_list, churn_list):
     win_list = pd.concat([win_list, win], ignore_index=True)
     churn_list = pd.concat([churn_list, churn], ignore_index=True)
     #now test and drop the old ones.
-    won = win['UID'].isin(churn_list['UID']) 
-    lost = churn['UID'].isin(win_list['UID'])
-    win_list.drop(win_list[lost].index, inplace = True)
-    churn_list.drop(churn_list[won].index, inplace = True)
+    won = win['UID'].isin(churn_list['UID']).copy()
+    lost = churn['UID'].isin(win_list['UID']).copy()
+    win_list = pd.merge(win_list,lost, indicator=True, how='outer').query('_merge=="left_only"').drop('_merge', axis=1)
+    churn_list = pd.merge(churn_list,won, indicator=True, how='outer').query('_merge=="left_only"').drop('_merge', axis=1)
     return win_list, churn_list
+
+def filetime():
+  # define date format
+  fmt = '%Y-%m-%d-%H%M%S'
+  # define eastern timezone
+  eastern = timezone('US/Eastern')
+  # localized datetime
+  loc_dt = datetime.now(eastern)
+  # 2015-12-31 19:21:00 
+  return(loc_dt.strftime(fmt))
 
 #%% Section: Main code body
 
 # Read Historical CSV file 
 # Convert Historical CSV to dataframe with select columns 
 # h_csv_3 = "historical_dataset.csv" #this works because they're in the working folder
-h_df3_spi = import_main("/Users/alexandersirris/repos/steele/new/dummy_data/historical_dataset.csv")
+h_df3_spi = import_main(maincsv)
 # h_df3_spi.sort_values('UID',ascending = True, ignore_index= True)
 # h_df3_spi.head(30)
 
 # Read New CSV File
 # Convert New CSV File to dataframe with select columns
 # n_csv_3 = "day_2.csv" # day 2 pull of the report
-n_df3_spi = import_daily("/Users/alexandersirris/repos/steele/new/dummy_data/day_2.csv")
+n_df3_spi = import_daily("day_2.csv")
 #n_df3_spi.sort_values('UID',ascending = True, ignore_index= True)
 
 # A DF with that day's changes
@@ -157,24 +227,9 @@ changes = check_changes(h_df3_spi, n_df3_spi)
 # Compare new CSV with updated historical CSV
 # Inner join new table with historical data table will remove new records. 
 df_all, double_df1 = daily_update(h_df3_spi, n_df3_spi)
-double_df1 = double_df1.merge(changes, on='UID', how='inner', sort=True)
-double_df1 = drop_dup_col(double_df1, "_d2") # Drops dup column 
-double_df1 = double_df1.assign(date = pd.to_datetime(timestamp()))
-
-# Create churn and win table. 
-churn_table = double_df1.loc[double_df1['transition']== "CHURN"]
-wins_table = double_df1.loc[double_df1['transition']== "WIN"]
-
-# Cleaning the df_all dataframe to remove duplicate columns and strip suffix
-df_all = drop_dup_col(df_all, '_y')
-df_all = strip_right(df_all, '_x')
-print(churn_table.head(20))
-
-# double_df1 = double_df1.loc[(double_df1['is_product_enabled_d1'] == True) & (double_df1['is_product_enabled_d2'] == False), ['UID', 'current_csm_d2', 'shop_name_d2', 'region_d2', 'internal_url_d2', 'revenue_365_d2', 'is_product_enabled_d2']]
-# double_df1.rename(columns={'current_csm_d2': 'current_csm', 'shop_name_d2': 'shop_name', 'region_d2':'region', 'internal_url_d2':'internal_url', 'revenue_365_d2': 'revenue_365', 'is_product_enabled_d2':'is_product_enabled'}, inplace=True)
-# double_df1.sort_values('UID',ascending = True, ignore_index= True)
-
-
+double_df1 = double_df1.loc[(double_df1['is_product_enabled_d1'] == True) & (double_df1['is_product_enabled_d2'] == False), ['UID', 'current_csm_d2', 'shop_name_d2', 'region_d2', 'internal_url_d2', 'revenue_365_d2', 'is_product_enabled_d2']]
+double_df1.rename(columns={'current_csm_d2': 'current_csm', 'shop_name_d2': 'shop_name', 'region_d2':'region', 'internal_url_d2':'internal_url', 'revenue_365_d2': 'revenue_365', 'is_product_enabled_d2':'is_product_enabled'}, inplace=True)
+double_df1.sort_values('UID',ascending = True, ignore_index= True)
 # Update historical csv file with new records and snopshot
 # This will concatinate the historical dataframe with the new dataframe, then remove the last duplicate
 # Keep = 'first' will refresh the data table with the newest data, while adding new records
@@ -193,3 +248,13 @@ win_upd, churn_upd = parse_status(changes)
 
 #%%
 win_list, churn_list = update_churns(win_upd, churn_upd, win_tbl, churn_tbl)
+
+#Captureprocesstime
+now = filetime()
+
+# Write results to Multiple Excel Sheets
+with pd.ExcelWriter(now+out_dest) as writer:
+    df_all.to_excel(writer, sheet_name='All_Cust', index = False)
+    win_list.to_excel(writer, sheet_name='Wins', index = False)
+    churn_list.to_excel(writer, sheet_name='Churns', index = False)
+    changes.to_excel(writer, sheet_name='Updates', index = False)
